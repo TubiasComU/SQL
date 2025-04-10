@@ -1,0 +1,85 @@
+--===========================================
+
+create or replace function calcular_gama(p_valor in number)
+    return varchar2
+is
+    v_gama varchar2(6);
+begin
+    select gama_income into v_gama
+    from mini_costumers
+    where p_valor between val_min and val_max;
+    return v_gama;
+end calcular_gama;
+/
+
+--==============================================
+
+create sequence costumers_seq;
+
+create or replace procedure etl_dim_costumers is
+    v_random_number number;
+    v_gama varchar2(6);
+cursor c_dim_costumers is
+    select  c.CUST_ID,c.CUST_FIRST_NAME,c.CUST_LAST_NAME,c.CUST_MAIN_PHONE_NUMBER,
+        c.CUST_EMAIL,coun.COUNTRY_NAME,city.CITY,costumers_seq.nextval sk
+    from customers_oltp c, cities_oltp city, countries_oltp coun
+    where c.CUST_CITY = city.CITY_ID
+    and coun.COUNTRY_ID = (
+        select COUNTRY 
+        from state_provinces_oltp sp
+        where city.STATE_PROVINCE = sp.STATE_PROVINCE_ID
+    )
+    and c.CUST_ID not in (
+        select cust_id
+        from costumers
+    );
+begin
+    for v_reg_c_costumers in c_dim_costumers loop
+        v_random_number := floor(dbms_random.value(0, 999999));
+        v_gama := calcular_gama(v_random_number);
+        insert into costumers (Costumers_ID,CUST_FIRST_NAME,CUST_LAST_NAME,CUST_MAIN_PHONE_NUMBER,
+            costumer_income,CUST_EMAIL,Country,City,Costumers_sk,mini_costumers_mini_c_sk,gama)
+        values (v_reg_c_costumers.CUST_ID,v_reg_c_costumers.CUST_FIRST_NAME,v_reg_c_costumers.CUST_LAST_NAME,
+            v_reg_c_costumers.CUST_MAIN_PHONE_NUMBER,v_random_number,v_reg_c_costumers.CUST_EMAIL,
+            v_reg_c_costumers.COUNTRY_NAME,v_reg_c_costumers.CITY,v_reg_c_costumers.sk,v_reg_c_costumers.sk,v_gama);      
+    end loop;
+end;
+/
+exec etl_dim_costumers;
+select count(*)from costumers;
+select * from costumers;
+
+--============================================
+
+create sequence mini_c_seq;
+create sequence miniID_seq;
+
+create or replace procedure etl_minidim_mini_costumers is
+    v_count number;
+begin
+    for cust_rec in (select * from customers_oltp) loop
+        select count(*) into v_count from mini_costumers where gama_income = SUBSTR(cust_rec.cust_income_level, 1, 1);
+        if v_count = 0 then
+            insert into mini_costumers (mini_id, gama_income, val_min, val_max, mini_c_sk)
+            values (
+                miniID_seq.nextval,
+                SUBSTR(cust_rec.cust_income_level, 1, 1),
+                CASE
+                    WHEN SUBSTR(cust_rec.cust_income_level, 1, 1) = 'A' THEN 0
+                    ELSE TO_NUMBER(REGEXP_SUBSTR(cust_rec.cust_income_level, '\d+', 1, 1)) * 1000
+                END,
+                CASE
+                    WHEN SUBSTR(cust_rec.cust_income_level, 1, 1) = 'A' THEN TO_NUMBER(REGEXP_SUBSTR(cust_rec.cust_income_level, '\d+', 1, 1)) * 1000
+                    WHEN SUBSTR(cust_rec.cust_income_level, 1, 1) = 'L' THEN 99999999 -- (Infinito)
+                    ELSE TO_NUMBER(REGEXP_SUBSTR(cust_rec.cust_income_level, '\d+', 1, 3)) * 1000 + 999
+                END,
+                mini_c_seq.nextval
+            );
+        end if;
+    end loop;
+end;
+/
+
+exec etl_minidim_mini_costumers;
+select * from mini_costumers;
+select count(*) from mini_costumers;
