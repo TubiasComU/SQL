@@ -1,0 +1,61 @@
+--=====================================================
+
+create sequence data_seq;
+
+create or replace procedure etl_dim_data (p_ano_inicio number, p_ano_fim number)
+is
+    v_last_day number(2);
+    v_id number;
+begin
+    for i in p_ano_inicio..p_ano_fim
+    loop
+        for j in 1..12
+        loop
+            v_last_day := to_number(to_char(last_day(to_date('01/' || j || '/' || i, 'dd/mm/yyyy')),'dd'));
+            for k in 1..v_last_day
+            loop
+                select count(*)
+                into v_id
+                from data
+                where data_id = to_number(to_char(to_date(k || '/' || j || '/' || i, 'dd/mm/yyyy'),'j'));
+                if v_id = 0 then
+                    insert into data (data_id,data_completa,dia,mes,ano,dia_semana,data_sk,feriados)
+                    values (
+                        to_number(to_char(to_date(k || '/' || j || '/' || i, 'dd/mm/yyyy'),'j')), --ID data
+                        to_date(k || '/' || j || '/' || i, 'dd/mm/yyyy'), --data completa
+                        k, --dia
+                        j, --mes
+                        i, --ano
+                        to_char(to_date(k || '/' || j || '/' || i, 'dd/mm/yyyy'), 'day'), --dia da semana
+                        data_seq.nextval, --SK
+                        case
+                            when (j = '01' and k = '01') then 'Dia de Ano Novo'
+                            when (j = '02' and k = '27') then 'Carnaval'
+                            when (j = '04' and k = '19') then 'Sexta-feira Santa'
+                            when (j = '04' and k = '21') then 'Páscoa'
+                            when (j = '04' and k = '25') then 'Dia da Liberdade'
+                            when (j = '05' and k = '01') then 'Dia Internacional do Trabalhador'
+                            when (j = '06' and k = '06') then 'Corpo de Cristo'
+                            when (j = '06' and k = '10') then 'Dia de Portugal'
+                            when (j = '08' and k = '15') then 'Dia da Assunção'
+                            when (j = '10' and k = '05') then 'Dia da República'
+                            when (j = '11' and k = '01') then 'Dia de Todos os Santos'
+                            when (j = '12' and k = '01') then 'Dia da Restauração da Independência'
+                            when (j = '12' and k = '08') then 'Imaculada Conceição'
+                            when (j = '12' and k = '25') then 'Dia de Natal'
+                            else null
+                        end
+                    );
+                end if;
+            end loop;
+        end loop;
+    end loop;
+end;
+/
+
+delete from data;
+exec etl_dim_data(2023,2024);
+select * from data;
+select count (*) from data;
+
+--===========================================
